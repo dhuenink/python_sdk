@@ -1,4 +1,4 @@
-# python-sdk
+# python_sdk
 Python script as a wrapper for Aviatrix API
 
 ## Usage examples:
