@@ -17,10 +17,10 @@ controller.login(username, password)
 controller ...
 """
 
-from urllib2 import urlopen, URLError
 import json
 import logging
 import urllib
+import urllib2
 import ssl
 
 class Aviatrix(object):
@@ -28,7 +28,33 @@ class Aviatrix(object):
     This class connects to the Aviatrix Controller and provides an interface
     for provisioning and modifying configuration of your cloud networking.
     """
-    logging.basicConfig(filename='./aviatrix.log', level='INFO')
+
+    class RESTException(Exception):
+        """
+        Base exception for REST API failures from aviatrix
+        """
+        def __init__(self, reason=None):
+            """
+            Constructor
+            Arguments:
+            reason - reason provided by the JSON response object
+            """
+            super(Aviatrix.RESTException, self).__init__('Aviatrix REST API: %s' % reason)
+            self.reason = reason
+
+    class CloudType(object):
+        """
+        Enum representation for the cloud_type argument
+        """
+
+        AWS = 1
+        AZURE = 2
+        GCP = 4
+        ARM = 8
+        AWS_GOVCLOUD = 256
+        AZURE_CHINA = 512
+        AWS_CHINA = 1024
+        ARM_CHINA = 2048
 
     def __init__(self, controller_ip):
         """
@@ -41,7 +67,6 @@ class Aviatrix(object):
             raise ValueError('Aviatrix Controller IP is required')
         self.controller_ip = controller_ip
         self.customer_id = ''
-        self.url = ''
         self.results = []
         self.result = None
         # Required for SSL Certificate no-verify
@@ -60,29 +85,27 @@ class Aviatrix(object):
         self.result - set to the JSON response object
         self.results - set to the reason or results object
         """
-        url = 'https://%s/v1/api?action=%s' % (self.controller_ip, action)
-        for key, value in parameters.iteritems():
-            value = urllib.quote(value, safe='')
-            url = url + '&%s=%s' % (key, value)
-        self.url = url
-        parameters['CID'] = self.customer_id
-        logging.info('Executing API call: %s', self.url)
-        try:
-            if method == 'POST':
-                data = urllib.urlencode(parameters)
-                response = urlopen(self.url, data=data, context=self.ctx)
-            else:
-                response = urlopen(self.url, context=self.ctx)
-            json_response = response.read()
-            logging.debug('HTTP Response: %s', json_response)
-            self.result = json.loads(json_response)
-            if not self.result['return']:
-                self.results = self.result['reason']
-            else:
-                self.results = self.result['results']
+        url = 'https://%s/v1/api' % (self.controller_ip)
+        new_parameters = dict(parameters)
+        new_parameters['action'] = action
+        new_parameters['CID'] = self.customer_id
+        data = urllib.urlencode(new_parameters)
+        if method == 'GET':
+            url = url + '?' + data
+            response = urllib2.urlopen(url, context=self.ctx)
+        elif method == 'POST':
+            response = urllib2.urlopen(url, data=data, context=self.ctx)
+        else:
+            raise ValueError('Invalid method %s', method)
 
-        except URLError, api_failed:
-            logging.info('Failed request. URLError: %s', str(api_failed.reason))
+        json_response = response.read()
+        logging.debug('HTTP Response: %s', json_response)
+        self.result = json.loads(json_response)
+        if not self.result['return']:
+            self.results = None
+            raise Aviatrix.RESTException(self.result['reason'])
+        else:
+            self.results = self.result['results']
 
     def login(self, username, password):
         """
@@ -172,8 +195,23 @@ class Aviatrix(object):
         params = {'customer_id': customer_id}
         self._avx_api_call('GET', 'setup_customer_id', params)
 
+    CREATE_GW_ALLOWED = ['cloud_type', 'account_name', 'gw_name', 'vpc_reg',
+                         'zone', 'vpc_net', 'vpc_size', 'vpc_id', 'enable_nat',
+                         'vpn_access', 'cidr', 'otp_mode', 'duo_integration_key',
+                         'duo_secret_key', 'duo_api_hostname', 'duo_push_mode',
+                         'okta_url', 'okta_token', 'okta_username_suffix',
+                         'enable_elb', 'elb_name', 'enable_client_cert_sharing',
+                         'max_conn', 'split_tunnel', 'additional_cidrs',
+                         'nameservers', 'search_domains', 'enable_pbr',
+                         'pbr_subnet', 'pbr_default_gateway', 'pbr_logging',
+                         'enable_ldap', 'ldap_server', 'ldap_bind_dn',
+                         'ldap_password', 'ldap_base_dn', 'ldap_user_attr',
+                         'ldap_additional_req', 'ldap_use_ssl',
+                         'ldap_client_cert', 'ldap_ca_cert', 'save_template',
+                         'allocate_new_eip']
+
     def create_gateway(self, account, cloud_type, gw_name, vpc_id, vpc_region,
-                       vpc_size, vpc_net):
+                       vpc_size, vpc_net, **kwargs):
         """
         Create a new Aviatrix Gateway.
         Arguments:
@@ -186,6 +224,39 @@ class Aviatrix(object):
         vpc_region - string - the VPC region name
         vpc_size - string - the size of the instance
         vpc_net - string - the CIDR block of the subnet where this gateway will be deployed
+        kwargs - additional arguments supported:
+             enable_nat - string - enable NAT for this gw ('yes' or 'no')
+             vpn_access - string - enable VPN for this GW ('yes' or 'no')
+             cidr - string - the VPN client CIDR block
+             otp_mode - string - MFA configuration ('2': DUO, '3': Okta)
+             duo_integration_key - string -
+             duo_secret_key - string -
+             duo_api_hostname - string -
+             okta_url - string -
+             okta_token - string -
+             okta_username_suffix - string -
+             enable_elb - string - enable ELB ('yes' or 'no')
+             enable_client_cert_sharing - enable CCS ('yes' or 'no')
+             max_conn - int - maximum number of connections
+             split_tunnel - string - enable split tunnel?  ('yes' or 'no')
+             additional_cidrs - string - additional CIDR blocks for split tunnel
+             nameservers - string - name server(s) for split tunnel
+             search_domains - string - search domains for split tunnel
+             pbr_subnet - string - Policy Based Routing CIDR
+             pbr_default_gateway - string - default gateway for policy based routing
+             pbr_logging - string - enable logging ('yes' or 'no')
+             enable_ldap - string - enable LDAP ('yes' or 'no')
+             ldap_server - string -
+             ldap_bind_dn - string -
+             ldap_password - string -
+             ldap_base_dn - string -
+             ldap_user_attr - string -
+             ldap_additional_req - string -
+             ldap_use_ssl - string -
+             ldap_client_cert - string -
+             ldap_ca_cert - string -
+             save_template - string -
+             allocate_new_eip - string -
         """
 
         params = {'account_name': account,
@@ -195,6 +266,9 @@ class Aviatrix(object):
                   'vpc_reg': vpc_region,
                   'vpc_size': vpc_size,
                   'vpc_net': vpc_net}
+        for key, value in kwargs.iteritems():
+            if key in Aviatrix.CREATE_GW_ALLOWED:
+                params[key] = value
         self._avx_api_call('POST', 'connect_container', params)
 
     def delete_gateway(self, cloud_type, gw_name):
@@ -276,10 +350,11 @@ class Aviatrix(object):
         """
         self._avx_api_call('GET', 'list_vpcs_summary', {'account_name': account_name})
 
-    def add_vpn_user(self, vpc_id, username, user_email, profile_name):
+    def add_vpn_user(self, lb_name, vpc_id, username, user_email, profile_name):
         """
         Add a new VPN user
         Arguments:
+        lb_name - string - load balancer name
         vpc_id - string - the VPC ID where this user will be added
         username - string - the name of the user
         user_email - string - (optional) the email address where this user's
@@ -288,8 +363,10 @@ class Aviatrix(object):
                                 user should be assigned
         """
 
-        params = {'vpc_id': vpc_id,
+        params = {'lb_name': lb_name,
+                  'vpc_id': vpc_id,
                   'username': username,
-                  'user_email': user_email,
-                  'profile_name': profile_name}
+                  'user_email': user_email}
+        if profile_name:
+            params['profile_name'] = profile_name
         self._avx_api_call('GET', 'add_vpn_user', params)
