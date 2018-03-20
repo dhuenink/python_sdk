@@ -1,6 +1,12 @@
 # python_sdk
 Python script as a wrapper for Aviatrix API
 
+## Installation
+
+```
+pip install aviatrix-sdk
+```
+
 ## Usage examples:
 
 #### Login to controller:
