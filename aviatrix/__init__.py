@@ -338,17 +338,24 @@ class Aviatrix(object):
 
     def list_peers_vpc_pairs(self):
         """
-        Lists the gateways that are peered
+        Lists the gateways that are peered.
+        Returns:
+        the list of peers
         """
         self._avx_api_call('GET', 'list_peer_vpc_pairs', {})
+        return self.results['pair_list']
 
     def list_gateways(self, account_name):
         """
         Gets a list of gateways
         Arguments:
         account_name - string - the name of the cloud account
+        Returns:
+        the list of gateways
         """
-        self._avx_api_call('GET', 'list_vpcs_summary', {'account_name': account_name})
+        params = {'account_name': account_name}
+        self._avx_api_call('GET', 'list_vpcs_summary', params)
+        return self.results
 
     def add_vpn_user(self, lb_name, vpc_id, username, user_email, profile_name):
         """
