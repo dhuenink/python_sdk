@@ -17,11 +17,27 @@ controller.login(username, password)
 controller ...
 """
 
+import datetime
 import json
 import logging
 import urllib
 import urllib2
 import ssl
+
+class Util(object):
+    """
+    Utilities class
+    """
+
+    EPOCH = datetime.datetime.utcfromtimestamp(0)
+    @staticmethod
+    def unix_time(date_to_convert):
+        """
+        Converts the given datetime object to unix time (seconds since epoch)
+        """
+        if not date_to_convert:
+            return 0
+        return long((date_to_convert - Util.EPOCH).total_seconds())
 
 class Aviatrix(object):
     """
@@ -74,18 +90,20 @@ class Aviatrix(object):
         self.ctx.check_hostname = False
         self.ctx.verify_mode = ssl.CERT_NONE
 
-    def _avx_api_call(self, method, action, parameters):
+    def _avx_api_call(self, method, action, parameters, is_backend=False):
         """
         Internal function to handle the API call.
         Arguments:
         method - string - GET/POST
         action - string - the action name (see API docs for details)
         parameters - dict - parameters to send to controller for this action
+        is_backend - bool - true is public API
+
         Side Effects:
         self.result - set to the JSON response object
         self.results - set to the reason or results object
         """
-        url = 'https://%s/v1/api' % (self.controller_ip)
+        url = 'https://%s/v1/%s' % (self.controller_ip, ('api' if not is_backend else 'backend1'))
         new_parameters = dict(parameters)
         new_parameters['action'] = action
         new_parameters['CID'] = self.customer_id
@@ -99,13 +117,16 @@ class Aviatrix(object):
             raise ValueError('Invalid method %s', method)
 
         json_response = response.read()
-        logging.debug('HTTP Response: %s', json_response)
+        logging.debug('[%s] HTTP Response: %s', url, json_response)
         self.result = json.loads(json_response)
-        if not self.result['return']:
-            self.results = None
-            raise Aviatrix.RESTException(self.result['reason'])
+        if 'return' in self.result:
+            if not self.result['return']:
+                self.results = None
+                raise Aviatrix.RESTException(self.result['reason'])
+            else:
+                self.results = self.result['results']
         else:
-            self.results = self.result['results']
+            self.results = self.result
 
     def login(self, username, password):
         """
@@ -338,6 +359,14 @@ class Aviatrix(object):
 
     def list_peers_vpc_pairs(self):
         """
+        left for backwards compatibility.
+        See:
+        list_peers()
+        """
+        return self.list_peers()
+
+    def list_peers(self):
+        """
         Lists the gateways that are peered.
         Returns:
         the list of peers
@@ -377,3 +406,82 @@ class Aviatrix(object):
         if profile_name:
             params['profile_name'] = profile_name
         self._avx_api_call('GET', 'add_vpn_user', params)
+
+    class StatName(object):
+        """
+        Enum representation for the statistic name field
+        """
+
+        DATA_AVG_TOTAL = 'data_avg_total'
+        DATA_AVG_SENT = 'data_avg_sent'
+        DATA_AVG_RECEIVED = 'data_avg_recvd'
+        RATE_AVG_TOTAL = 'rate_avg_total'
+        RATE_AVG_SENT = 'rate_avg_sent'
+        RATE_AVG_RECEIVED = 'rate_avg_recvd'
+        RATE_TOTAL = 'rate_total'
+        RATE_SENT = 'rate_sent'
+        RATE_RECEIVED = 'rate_received'
+        RATE_PEAK_TOTAL = 'rate_peak_total'
+        RATE_PEAK_SENT = 'rate_peak_sent'
+        RATE_PEAK_RECEIVED = 'rate_peak_received'
+        CUMULATIVE_SENT = 'cumulative_sent'
+        CUMULATIVE_RECEIVED = 'cumulative_received'
+        CUMULATIVE_TOTAL = 'cumulative_total'
+        DISK_FREE = 'hdisk_free'
+        DISK_TOTAL = 'hdisk_tot'
+        MEMORY_CACHE = 'memory_cached'
+        MEMORY_BUFFER = 'memory_buf'
+        MEMORY_SWAPPED = 'memory_swpd'
+        MEMORY_FREE = 'memory_free'
+        CPU_IDLE = 'cpu_idle'
+        CPU_WAIT = 'cpu_wait'
+        CPU_USER_SPACE = 'cpu_us'
+        CPU_KERNEL_SPACE = 'cpu_ks'
+        CPU_STEAL = 'cpu_steal'
+        SYSTEM_INTERRUPTS = 'system_int'
+        SYSTEM_CONTEXT_SWITCHES = 'system_cs'
+        MEMORY_SWAPS_TO_DISK = 'swap_to_disk'
+        MEMORY_SWAPS_FROM_DISK = 'swap_from_disk'
+        IO_BLOCKS_IN = 'io_blk_in'
+        IO_BLOCKS_OUT = 'io_blk_out'
+        PROCESSES_WAITING_TO_RUN = 'nproc_running'
+        PROCESSES_UNINTERRUPTABLE_SLEEP = 'nproc_non_int_sleep'
+
+    def get_gateway_statistic_over_time(self, gw_names, start, end, stat):
+        """
+        Gets statistics about one or more gateways during the given timeframe.
+        Arguments:
+        gw_names - array - array of gateway names
+        start - datetime - start time to return statistic
+        end - datetime - end time to return statistic
+        stat - enum.StatName - the statistic to return
+
+        Returns:
+        list of gateways with the data in an array
+        """
+
+        if isinstance(gw_names, basestring):
+            gw_name = gw_names
+        else:
+            gw_name = ','.join(gw_names)
+        params = {'start_time': Util.unix_time(start),
+                  'end_time': Util.unix_time(end),
+                  'ds_name': stat,
+                  'db_id': 0,
+                  'gw_name': gw_name}
+        self._avx_api_call('POST', 'get_statistics', params, True)
+        return self.results
+
+    def get_current_gateway_statistics(self, gw_name):
+        """
+        Gets current statistics about a single gateway.
+        Arguments:
+        gw_name - string - gateway name
+
+        Returns:
+        list of statistics
+        """
+
+        params = {'gw_name': gw_name}
+        self._avx_api_call('POST', 'show_packets_stat_for_gw', params, True)
+        return self.results
