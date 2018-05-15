@@ -386,6 +386,25 @@ class Aviatrix(object):
         self._avx_api_call('GET', 'list_vpcs_summary', params)
         return self.results
 
+    def get_gateway_by_name(self, account_name, gw_name):
+        """
+        Gets a gateway by name
+        Arguments:
+        account_name - string - the name of the cloud account
+        gw_name - string - the name of the gateway name
+        Returns:
+        matching gateway object or None if not found
+        """
+        gws = self.list_gateways(account_name)
+        if not gws:
+            return None
+
+        for gwy in gws:
+            if gwy['vpc_name'] == gw_name:
+                return gwy
+
+        return None
+
     def add_vpn_user(self, lb_name, vpc_id, username, user_email, profile_name):
         """
         Add a new VPN user
@@ -484,4 +503,131 @@ class Aviatrix(object):
 
         params = {'gw_name': gw_name}
         self._avx_api_call('POST', 'show_packets_stat_for_gw', params, True)
+        return self.results
+
+    def enable_nat(self, gw_name):
+        """
+        Enables NAT on the given gateway
+        Arguments:
+        gw_name - string - gateway name
+
+        """
+
+        params = {'gw_name': gw_name}
+        self._avx_api_call('POST', 'enable_nat', params)
+
+    def disable_nat(self, gw_name):
+        """
+        Disables NAT on the given gateway
+        Arguments:
+        gw_name - string - gateway name
+
+        """
+
+        params = {'gw_name': gw_name}
+        self._avx_api_call('POST', 'disable_nat', params)
+
+
+    def add_fqdn_filter_tag(self, tag_name):
+        """
+        Adds FQDN Filter Tag
+        Arguments:
+        tag_name - name of the filter tag to create
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('POST', 'add_fqdn_filter_tag', params)
+
+    def delete_fqdn_filter_tag(self, tag_name):
+        """
+        Deletes FQDN Filter Tag
+        Arguments:
+        tag_name - name of the filter tag to delete
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('POST', 'del_fqdn_filter_tag', params)
+
+    def set_fqdn_filter_black_list(self, tag_name):
+        """
+        Sets the FQDN filter to be a black list (rather than a white list)
+        Arguments:
+        tag_name - name of the filter tag to change
+        """
+
+        params = {'tag_name': tag_name, 'color': 'black'}
+        self._avx_api_call('POST', 'set_fqdn_filter_tag_color', params)
+
+    def set_fqdn_filter_white_list(self, tag_name):
+        """
+        Sets the FQDN filter to be a black list (rather than a white list)
+        Arguments:
+        tag_name - name of the filter tag to change
+        """
+
+        params = {'tag_name': tag_name, 'color': 'white'}
+        self._avx_api_call('POST', 'set_fqdn_filter_tag_color', params)
+
+    def enable_fqdn_filter(self, tag_name):
+        """
+        Enables the given FQDN filter
+        Arguments:
+        tag_name - name of the filter tag to change
+        """
+
+        params = {'tag_name': tag_name, 'status': 'enabled'}
+        self._avx_api_call('POST', 'set_fqdn_filter_tag_state', params)
+
+    def disable_fqdn_filter(self, tag_name):
+        """
+        Disables the given FQDN filter
+        Arguments:
+        tag_name - name of the filter tag to change
+        """
+
+        params = {'tag_name': tag_name, 'status': 'disabled'}
+        self._avx_api_call('POST', 'set_fqdn_filter_tag_state', params)
+
+    def attach_fqdn_filter_to_gateway(self, tag_name, gw_name):
+        """
+        Attaches the given gateway to the given FQDN Filter
+        Arguments:
+        tag_name - the FQDN tag name to attach
+        gw_name - the gateway name that this tag will be attached to
+        """
+
+        params = {'tag_name': tag_name, 'gw_name': gw_name}
+        self._avx_api_call('POST', 'attach_fqdn_filter_tag_to_gw', params)
+
+    def detach_fqdn_filter_from_gateway(self, tag_name, gw_name):
+        """
+        Detaches the given gateway from the given FQDN Filter
+        Arguments:
+        tag_name - the FQDN tag name to detach
+        gw_name - the gateway name that this tag will be detached to
+        """
+
+        params = {'tag_name': tag_name, 'gw_name': gw_name}
+        self._avx_api_call('POST', 'detach_fqdn_filter_tag_from_gw', params)
+
+    def list_fqdn_filter_gateways(self, tag_name):
+        """
+        Lists the gateways attached to the specified FQDN filter
+        Arguments:
+        tag_name - the FQDN filter name
+        Returns:
+        List of gateway(s) attached to this tag
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('GET', 'list_fqdn_filter_tag_attached_gws', params)
+        return self.results
+
+    def list_fqdn_filters(self):
+        """
+        Lists all FQDN filter tags defined
+        """
+
+        params = {}
+        self._avx_api_call('GET', 'list_fqdn_filter_tags', params)
         return self.results
