@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
  This script provides an example of how to connect to an Aviatrix Controller
- and create a user ssl vpn gateway.
+ and get stats from an gateway.
 
  INPUTS:
    $1 - HOST - string - host/ip of the controller
