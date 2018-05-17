@@ -107,7 +107,7 @@ class Aviatrix(object):
         new_parameters = dict(parameters)
         new_parameters['action'] = action
         new_parameters['CID'] = self.customer_id
-        data = urllib.urlencode(new_parameters)
+        data = urllib.urlencode(new_parameters, True)
         if method == 'GET':
             url = url + '?' + data
             response = urllib2.urlopen(url, context=self.ctx)
@@ -547,6 +547,29 @@ class Aviatrix(object):
 
         params = {'tag_name': tag_name}
         self._avx_api_call('POST', 'del_fqdn_filter_tag', params)
+
+    def set_fqdn_filter_domain_list(self, tag_name, domains):
+        """
+        Sets the domain definitions for the given FQDN filter
+        Arguments:
+        tag_name - the name of the tag to update
+        domains - list of domain definitions
+                  for example: ["*.google.com", "cnn.com"]
+        """
+
+        params = {'tag_name': tag_name, 'domain_names[]': domains}
+        self._avx_api_call('POST', 'set_fqdn_filter_tag_domain_names', params)
+
+    def get_fqdn_filter_domain_list(self, tag_name):
+        """
+        Gets the domain definitions for the given FQDN filter
+        Arguments:
+        tag_name - the name of the tag to get
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('GET', 'list_fqdn_filter_tag_domain_names', params)
+        return self.results
 
     def set_fqdn_filter_black_list(self, tag_name):
         """
