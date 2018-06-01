@@ -21,7 +21,7 @@ def main():
     main() interface to this script
     """
     if len(sys.argv) != 5:
-        print ('usage: %s <HOST> <USER> <PASSWORD>\n'
+        print ('usage: %s <HOST> <USER> <PASSWORD> <GW>\n'
                '  where\n'
                '    HOST Aviatrix Controller hostname or IP\n'
                '    USER Aviatrix Controller login username\n'
