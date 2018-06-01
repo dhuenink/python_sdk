@@ -118,15 +118,24 @@ class Aviatrix(object):
 
         json_response = response.read()
         logging.debug('[%s] HTTP Response: %s', url, json_response)
-        self.result = json.loads(json_response)
-        if 'return' in self.result:
-            if not self.result['return']:
-                self.results = None
-                raise Aviatrix.RESTException(self.result['reason'])
+        if json_response[0:6] == 'Error:':
+            raise ValueError(json_response)
+
+        try:
+            self.result = json.loads(json_response)
+            if 'return' in self.result:
+                if not self.result['return']:
+                    self.results = None
+                    raise Aviatrix.RESTException(self.result['reason'])
+                else:
+                    self.results = self.result['results']
             else:
-                self.results = self.result['results']
-        else:
-            self.results = self.result
+                self.results = self.result
+        except ValueError, nojson:
+            if str(nojson) == 'No JSON object could be decoded':
+                self.results = json_response
+            else:
+                raise nojson
 
     def login(self, username, password):
         """
@@ -215,6 +224,17 @@ class Aviatrix(object):
 
         params = {'customer_id': customer_id}
         self._avx_api_call('GET', 'setup_customer_id', params)
+
+    def get_controller_public_ip(self):
+        """
+        Gets the Aviatrix Controller public IP address
+        Returns:
+        The Public IP address
+        """
+
+        params = {'public': 'yes'}
+        self._avx_api_call('POST', 'show_controller_ip', params, True)
+        return self.results['public_ip']
 
     CREATE_GW_ALLOWED = ['cloud_type', 'account_name', 'gw_name', 'vpc_reg',
                          'zone', 'vpc_net', 'vpc_size', 'vpc_id', 'enable_nat',
@@ -405,7 +425,32 @@ class Aviatrix(object):
 
         return None
 
-    def add_vpn_user(self, lb_name, vpc_id, username, user_email, profile_name):
+    def list_vpn_users(self):
+        """
+        Lists all VPN users
+        Returns:
+        Array of VPN user objects
+        """
+
+        self._avx_api_call('GET', 'list_vpn_users', {})
+        return self.results
+
+    def delete_vpn_user(self, vpc_id, username):
+        """
+        Delete a VPN user
+        Arguments:
+        vpc_id - string - the VPC ID from where the user will be deleted
+        username - string - the username to delete
+        """
+
+        params = {'vpc_id': vpc_id,
+                  'username': username}
+        self._avx_api_call('GET', 'delete_vpn_user', params)
+
+    def add_vpn_user(self, lb_name, vpc_id, username,
+                     user_email=None,
+                     profile_name=None,
+                     saml_endpoint=None):
         """
         Add a new VPN user
         Arguments:
@@ -416,15 +461,66 @@ class Aviatrix(object):
                               certificate and instructions should be emailed
         profile_name - string - (optional) the name of the profile that this
                                 user should be assigned
+        saml_endpoint - string - (optional) the saml endpoint for this user
         """
 
         params = {'lb_name': lb_name,
                   'vpc_id': vpc_id,
                   'username': username,
-                  'user_email': user_email}
+                  'dns': 'false',
+                  'external_user': 'false'}
+        if user_email:
+            params['user_email'] = user_email
         if profile_name:
             params['profile_name'] = profile_name
-        self._avx_api_call('GET', 'add_vpn_user', params)
+        if saml_endpoint:
+            params['saml_endpoint'] = saml_endpoint
+        self._avx_api_call('POST', 'add_vpn_user', params, True)
+
+    def detach_vpn_user(self, vpc_id, username):
+        """
+        Detaches an existing VPN user from the VPC.
+        Arguments:
+        vpc_id - string - the VPC ID that the user is currently attached
+        username - string - the username to detach
+        """
+
+        params = {'vpc_id_or_dns_name': vpc_id,
+                  'username': username,
+                  'dns': 'false'}
+        self._avx_api_call('POST', 'detach_vpn_user', params)
+
+    def attach_vpn_user(self, lb_name, vpc_id, username,
+                        user_email=None,
+                        profile_name=None,
+                        saml_endpoint=None):
+        """
+        Add a new VPN user
+        Arguments:
+        lb_name - string - load balancer name
+        vpc_id - string - the VPC ID where this user will be added
+        username - string - the name of the user
+        user_email - string - (optional) the email address where this user's
+                              certificate and instructions should be emailed
+        profile_name - string - (optional) the name of the profile that this
+                                user should be assigned
+        saml_endpoint - string - (optional) the saml endpoint for this user
+        """
+
+        params = {'lb_name': lb_name,
+                  'vpc_id_or_dns_name': vpc_id,
+                  'username': username,
+                  'dns': 'false',
+                  'external_user': 'false',
+                  'use_profile': 'false'}
+        if user_email:
+            params['user_email'] = user_email
+        if profile_name:
+            params['use_profile'] = 'true'
+            params['profile_name'] = profile_name
+        if saml_endpoint:
+            params['saml_endpoint'] = saml_endpoint
+        self._avx_api_call('POST', 'attach_vpn_user', params)
 
     class StatName(object):
         """
