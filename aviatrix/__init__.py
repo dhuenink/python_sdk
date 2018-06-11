@@ -750,3 +750,94 @@ class Aviatrix(object):
         params = {}
         self._avx_api_call('GET', 'list_fqdn_filter_tags', params)
         return self.results
+
+    def list_fw_tags(self):
+        """
+        Lists all policy tags defined
+        Arguments:
+        None
+        """
+
+        params = {}
+        self._avx_api_call('POST', 'list_policy_tags', params, True)
+        return self.results
+
+    def add_fw_tag(self, tag_name):
+        """
+        Adds a new FW policy tag
+        Arguments:
+        tag_name - the name of the FW policy tag
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('POST', 'add_policy_tag', params)
+
+    def delete_fw_tag(self, tag_name):
+        """
+        Removes a FW policy tag
+        Arguments:
+        tag_name - string - the name of the FW policy tag to remove
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('POST', 'del_policy_tag', params)
+
+    def get_fw_tag_members(self, tag_name):
+        """
+        Lists all policy tag members (name + CIDR)
+        Arguments:
+        tag_name - string - the name of the FW policy tag to retrieve
+        """
+
+        params = {'tag_name': tag_name}
+        self._avx_api_call('GET', 'list_policy_members', params)
+        return self.results['members']
+
+    def set_fw_tag_members(self, tag_name, members):
+        """
+        Sets the policies associated with the given tag.
+        Arguments:
+        tag_name - string - the name of the FW policy tag
+        members - list[dict] - dict should include 'name', 'cidr'
+        """
+
+        params = {'tag_name': tag_name}
+        current = 0
+        for member in members:
+            params['new_policies[%d][name]' % (current)] = member['name']
+            params['new_policies[%d][cidr]' % (current)] = member['cidr']
+            current = current + 1
+
+        self._avx_api_call('POST', 'update_policy_members', params)
+
+    def get_fw_policy_full(self, gw_name):
+        """
+        Gets the firewall policy defined for a single VPC/GW.
+        Arguments:
+        gw_name - string - the name of the gateway to return policies
+        Returns:
+        dict with base_policy, base_policy_log_enable, _and_ security_rules
+           NOTE: security_rules corresponds to what you set in set_fw_policy()
+        """
+
+        params = {'vpc_name': gw_name}
+        self._avx_api_call('GET', 'vpc_access_policy', params)
+        return self.results
+
+    def set_fw_policy_security_rules(self, gw_name, rules):
+        """
+        Sets the firewall policy rules for the given gateway
+        Arguments:
+        gw_name - string - the name of the gateway to return policies
+        rules - list[dict] - list of dictionary with keys 
+                ('protocol', 's_ip', 'log_enable', 'd_ip', 'deny_allow', 'port')
+               all keys are required and all values are strings
+               deny_allow is one of ('allow', 'deny')
+               protocol is one of ('all', 'tcp', 'udp', 'icmp', 'sctp', 'rdp', 'dccp')
+               s_ip/d_ip - valid CIDR or tag name
+               port - single port or range ('25', '25:1024', etc.)
+               log_enable is one of ('on', 'off')
+        """
+
+        params = {'vpc_name': gw_name, 'new_policy': json.dumps(rules)}
+        self._avx_api_call('GET', 'update_access_policy', params)
