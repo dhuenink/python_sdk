@@ -20,9 +20,9 @@ controller ...
 import datetime
 import json
 import logging
-import urllib
-import urllib2
+import urllib.request, urllib.parse, urllib.error
 import ssl
+
 
 class Util(object):
     """
@@ -30,6 +30,7 @@ class Util(object):
     """
 
     EPOCH = datetime.datetime.utcfromtimestamp(0)
+
     @staticmethod
     def unix_time(date_to_convert):
         """
@@ -37,7 +38,8 @@ class Util(object):
         """
         if not date_to_convert:
             return 0
-        return long((date_to_convert - Util.EPOCH).total_seconds())
+        return int((date_to_convert - Util.EPOCH).total_seconds())
+
 
 class Aviatrix(object):
     """
@@ -49,13 +51,14 @@ class Aviatrix(object):
         """
         Base exception for REST API failures from aviatrix
         """
+
         def __init__(self, reason=None):
             """
             Constructor
             Arguments:
             reason - reason provided by the JSON response object
             """
-            super(Aviatrix.RESTException, self).__init__('Aviatrix REST API: %s' % reason)
+            super(Aviatrix.RESTException, self).__init__('Aviatrix REST API: {}'.format(reason))
             self.reason = reason
 
     class CloudType(object):
@@ -103,24 +106,25 @@ class Aviatrix(object):
         self.result - set to the JSON response object
         self.results - set to the reason or results object
         """
-        url = 'https://%s/v1/%s' % (self.controller_ip, ('api' if not is_backend else 'backend1'))
+        url = 'https://{0}/v1/{1}'.format(self.controller_ip, ('api' if not is_backend else 'backend1'))
         new_parameters = dict(parameters)
         new_parameters['action'] = action
         new_parameters['CID'] = self.customer_id
-        data = urllib.urlencode(new_parameters, True)
+        data = urllib.parse.urlencode(new_parameters)
         if method == 'GET':
             url = url + '?' + data
-            response = urllib2.urlopen(url, context=self.ctx)
+            req = urllib.request.Request(url)
         elif method == 'POST':
-            response = urllib2.urlopen(url, data=data, context=self.ctx)
+            data = data.encode()
+            req = urllib.request.Request(url, data)
         else:
-            raise ValueError('Invalid method %s', method)
+            raise ValueError('Invalid method {}'.format(method))
+        with urllib.request.urlopen(req, context=self.ctx) as response:
+            json_response = response.read()
+            logging.debug('[{0}] HTTP Response: {1}'.format(url, json_response))
 
-        json_response = response.read()
-        logging.debug('[%s] HTTP Response: %s', url, json_response)
         if json_response[0:6] == 'Error:':
             raise ValueError(json_response)
-
         try:
             self.result = json.loads(json_response)
             if 'return' in self.result:
@@ -131,7 +135,7 @@ class Aviatrix(object):
                     self.results = self.result['results']
             else:
                 self.results = self.result
-        except ValueError, nojson:
+        except ValueError as nojson:
             if str(nojson) == 'No JSON object could be decoded':
                 self.results = json_response
             else:
@@ -153,8 +157,8 @@ class Aviatrix(object):
         try:
             if self.result['return']:
                 self.customer_id = self.result['CID']
-        except AttributeError, login_err:
-            logging.info('Login Request Failed. AttributeError: %s', str(login_err))
+        except AttributeError as login_err:
+            logging.info('Login Request Failed. AttributeError: {}'.format(str(login_err)))
 
     def admin_email(self, email):
         """
@@ -188,15 +192,11 @@ class Aviatrix(object):
         """
         self._avx_api_call('POST', 'initial_setup', {'subaction': subaction})
 
-    def setup_account_profile(self, account, password, email, cloud_type,
-                              aws_account_number, aws_role_arn, aws_role_ec2):
+    def setup_account_profile(self, account, cloud_type, aws_account_number, aws_role_arn, aws_role_ec2):
         """
         Onboard a new account.
         Arguments:
         account - string - the name of the account to be display in the Controller
-        password - string - the password for the new admin user that will be
-                            created for this account
-        email - string - the email address associated with the new admin user
         cloud_type - int - 1 (AWS), 2 (Azure), 4 (GCP), 8 (ARM),
                            256 (AWS govcloud), 512 (Azure China),
                            1024 (AWS China), 2048 (ARM China);
@@ -206,8 +206,6 @@ class Aviatrix(object):
         aws_role_ec2 - string - the AWS ARN of the EC2 role
         """
         params = {'account_name': account,
-                  'account_password': password,
-                  'account_email': email,
                   'cloud_type': cloud_type,
                   'aws_iam': 'true',
                   'aws_account_number': aws_account_number,
@@ -307,10 +305,45 @@ class Aviatrix(object):
                   'vpc_reg': vpc_region,
                   'vpc_size': vpc_size,
                   'vpc_net': vpc_net}
-        for key, value in kwargs.iteritems():
+        for key, value in kwargs.items():
             if key in Aviatrix.CREATE_GW_ALLOWED:
                 params[key] = value
         self._avx_api_call('POST', 'connect_container', params)
+
+    CREATE_SPOKE_GW_ALLOWED=['account_name', 'cloud_type', 'region', 'vpc_id', 'public_subnet', 'gw_name',
+                             'gw_size', 'dns_server', 'nat_enabled', 'tags']
+
+    def create_spoke_gateway(self, account_name, cloud_type, region, vpc_id, public_subnet, gw_name,
+                             gw_size, **kwargs):
+        """
+                Create a new Aviatrix Spoke Gateway.
+                Arguments:
+                account_name - string - the name of the cloud account where this gateway will be provisioned
+                cloud_type - int - 1 (AWS), 2 (Azure), 4 (GCP), 8 (ARM),
+                                   256 (AWS govcloud), 512 (Azure China),
+                                   1024 (AWS China), 2048 (ARM China)
+                region - string - the VPC region name
+                vpc_id - string - the VPC ID from AWS (see the AWS VPC Dashboard)
+                public_subnet - string - The public subnet info example: AWS: "CIDR~~ZONE~~SubnetName"
+                gw_name - string - the name of the new gateway
+                gw_size - string - the size of the gateway instance
+                kwargs - additional arguments supported:
+                    dns_server - string - specify the DNS IP
+                    nat_enabled - string - specify whether enabling NAT feature on the gateway or not
+                    tags - string - Instance tag of cloud provider
+        """
+
+        params = {'account_name': account_name,
+                  'cloud_type': cloud_type,
+                  'region': region,
+                  'vpc_id': vpc_id,
+                  'public_subnet': public_subnet,
+                  'gw_name': gw_name,
+                  'gw_size': gw_size}
+        for key, value in kwargs.items():
+            if key in Aviatrix.CREATE_SPOKE_GW_ALLOWED:
+                params[key] = value
+        self._avx_api_call('POST', 'create_spoke_gw', params)
 
     def delete_gateway(self, cloud_type, gw_name):
         """
@@ -323,6 +356,7 @@ class Aviatrix(object):
         """
         self._avx_api_call('GET', 'delete_container', {'cloud_type': cloud_type,
                                                        'gw_name': gw_name})
+
     def peering(self, vpc_name1, vpc_name2):
         """
         Connect 2 gateways together with Aviatrix Encrypted Peering
@@ -575,7 +609,7 @@ class Aviatrix(object):
         list of gateways with the data in an array
         """
 
-        if isinstance(gw_names, basestring):
+        if isinstance(gw_names, str):
             gw_name = gw_names
         else:
             gw_name = ','.join(gw_names)
@@ -622,7 +656,6 @@ class Aviatrix(object):
 
         params = {'gw_name': gw_name}
         self._avx_api_call('POST', 'disable_nat', params)
-
 
     def add_fqdn_filter_tag(self, tag_name):
         """
@@ -829,7 +862,7 @@ class Aviatrix(object):
         Sets the firewall policy rules for the given gateway
         Arguments:
         gw_name - string - the name of the gateway to return policies
-        rules - list[dict] - list of dictionary with keys 
+        rules - list[dict] - list of dictionary with keys
                 ('protocol', 's_ip', 'log_enable', 'd_ip', 'deny_allow', 'port')
                all keys are required and all values are strings
                deny_allow is one of ('allow', 'deny')
@@ -841,3 +874,94 @@ class Aviatrix(object):
 
         params = {'vpc_name': gw_name, 'new_policy': json.dumps(rules)}
         self._avx_api_call('GET', 'update_access_policy', params)
+
+    def list_accounts(self):
+
+        """
+        Lists all Accounts
+        """
+
+        params = {}
+        self._avx_api_call('GET', 'list_accounts', params)
+        return self.results
+
+    def list_spoke_gws(self):
+        """
+        Lists spoke gateways
+        """
+
+        params = {}
+        self._avx_api_call('GET', 'list_spoke_gws', params)
+        return self.results
+
+    def list_public_subnets(self, account_name, region, vpc_id, cloud_type):
+        """
+                Gets a list of gateways
+                Arguments:
+                account_name - string - the name of the cloud account
+                region - string - Region of the resource in cloud provider
+                vpc_id - string - the VPC ID of the cloud provider
+                Returns:
+                the list of public subnets
+                """
+        params = {'account_name': account_name,
+                  'region': region,
+                  'vpc_id': vpc_id,
+                  'cloud_type': cloud_type
+                  }
+        self._avx_api_call('GET', 'list_public_subnets', params)
+        return self.results
+
+    def list_spoke_gw_supported_sizes(self):
+        """
+                Gets a list of supported gateway sizes
+                Arguments:
+                Returns:
+                the list of supported gateway sizes
+                """
+        params = {}
+        self._avx_api_call('GET', 'list_spoke_gw_supported_sizes', params)
+        return self.results
+
+    def list_transit_gws(self):
+        """
+                Gets a list of supported gateway sizes
+                Arguments:
+                Returns:
+                the list of supported gateway sizes
+                """
+        params = {}
+        self._avx_api_call('GET', 'list_transit_gws', params)
+        return self.results
+
+    def enable_single_az_ha(self, gw_name):
+        """
+        Enables single AZ HA on the gateway
+        Arguments:
+        gw_name - the gateway name that will have single AZ HA enabled
+        """
+
+        params = {'gw_name': gw_name}
+        self._avx_api_call('POST', 'enable_single_az_ha', params)
+
+    def enable_spoke_ha(self, gw_name, public_subnet):
+        """
+        Enables spoke HA on the gateway
+        Arguments:
+        gw_name - the gateway name that will have HA enabled
+        public_subnet - The public subnet to deploy the ha gateway to
+        """
+
+        params = {'gw_name': gw_name, 'public_subnet': public_subnet}
+        self._avx_api_call('POST', 'enable_spoke_ha', params)
+
+    def attach_spoke_to_transit_gw(self, spoke_gw, transit_gw):
+        """
+        Enables spoke HA on the gateway
+        Arguments:
+        gw_name - the gateway name that will have HA enabled
+        public_subnet - The public subnet to deploy the ha gateway to
+        """
+
+        params = {'spoke_gw': spoke_gw, 'transit_gw': transit_gw}
+        self._avx_api_call('POST', 'attach_spoke_to_transit_gw', params)
